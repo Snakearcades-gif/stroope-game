@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Stroop Challenge v2.0</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+            user-select: none;
+        }
+
+        h1 { color: #333; margin-bottom: 10px; }
+        
+        .instructions { 
+            color: #666; 
+            max-width: 600px; 
+            margin-bottom: 20px; 
+            line-height: 1.5;
+        }
+
+        /* Error Banner for Troubleshooting */
+        #error-banner {
+            display: none;
+            background-color: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #ef9a9a;
+            max-width: 500px;
+            font-size: 14px;
+            text-align: left;
+        }
+
+        #game-container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            width: 350px;
+            min-height: 450px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            position: relative;
+        }
+
+        #score-board {
+            font-size: 20px;
+            font-weight: bold;
+            color: #555;
+            position: absolute;
+            top: 20px;
+            right: 30px;
+        }
+
+        #word-display {
+            font-size: 70px;
+            font-weight: 900;
+            margin-top: 60px;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            min-height: 100px; /* Prevent layout jump */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #status-area {
+            margin-bottom: 30px;
+            min-height: 60px;
+        }
+
+        #status {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        #transcript {
+            font-size: 14px;
+            color: #888;
+            font-style: italic;
+        }
+
+        .btn {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 15px 40px;
+            text-align: center;
+            display: inline-block;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: transform 0.2s, background 0.3s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .btn:hover { background-color: #45a049; transform: translateY(-2px); }
+        .btn:active { transform: translateY(0); }
+        
+        .btn.retry { background-color: #ff4757; display: none; }
+        .btn:disabled { background-color: #ccc; cursor: not-allowed; }
+
+        /* Animation Classes */
+        .shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+        
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>The Stroop Challenge</h1>
+    <p class="instructions">
+        <strong>How to play:</strong> Say the <u>COLOR of the ink</u>.<br>
+        If you see <span style="color:blue; font-weight:bold">RED</span>, say "Blue".<br>
+        If you read the word "Red", you lose!
+    </p>
+
+    <div id="error-banner"></div>
+
+    <div id="game-container">
+        <div id="score-board">0 / 20</div>
+        
+        <div id="word-display" style="color:#333">READY?</div>
+        
+        <div id="status-area">
+            <div id="status">Press Start to Enable Mic</div>
+            <div id="transcript"></div>
+        </div>
+
+        <button id="start-btn" class="btn" onclick="startGame()">Start Game</button>
+        <button id="retry-btn" class="btn retry" onclick="resetGame()">Try Again</button>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const levels = [
+            { text: "RED", color: "blue" },
+            { text: "BLUE", color: "green" },
+            { text: "GREEN", color: "orange" }, 
+            { text: "YELLOW", color: "red" },
+            { text: "ORANGE", color: "purple" },
+            { text: "PURPLE", color: "black" },
+            { text: "BLACK", color: "pink" },
+            { text: "PINK", color: "blue" },
+            { text: "RED", color: "green" },
+            { text: "BLUE", color: "red" },
+            { text: "GREEN", color: "purple" },
+            { text: "YELLOW", color: "blue" },
+            { text: "ORANGE", color: "black" },
+            { text: "PURPLE", color: "pink" },
+            { text: "BLACK", color: "orange" },
+            { text: "PINK", color: "green" },
+            { text: "RED", color: "black" },
+            { text: "BLUE", color: "pink" },
+            { text: "GREEN", color: "red" },
+            { text: "YELLOW", color: "green" }
+        ];
+
+        // --- STATE VARIABLES ---
+        let currentIndex = 0;
+        let recognition;
+        let isListening = false;
+        let ignoreNextEnd = false;
+
+        // --- UI ELEMENTS ---
+        const wordDisplay = document.getElementById('word-display');
+        const statusDisplay = document.getElementById('status');
+        const transcriptDisplay = document.getElementById('transcript');
+        const startBtn = document.getElementById('start-btn');
+        const retryBtn = document.getElementById('retry-btn');
+        const scoreBoard = document.getElementById('score-board');
+        const errorBanner = document.getElementById('error-banner');
+
+        // --- INITIAL CHECKS ---
+        window.onload = function() {
+            // Check 1: Browser Support
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                showError("⚠️ Your browser does not support Voice Recognition. Please use Google Chrome or Microsoft Edge.");
+                startBtn.disabled = true;
+                return;
+            }
+
+            // Check 2: Protocol (File vs Server)
+            if (window.location.protocol === 'file:') {
+                showError("⚠️ <strong>Protocol Error:</strong> You are running this file directly from a folder.<br>Browsers block microphone access for local files.<br><br><strong>Fix:</strong> Use a local server (VS Code Live Server) or paste this code into CodePen.io.");
+            }
+        };
+
+        function showError(msg) {
+            errorBanner.innerHTML = msg;
+            errorBanner.style.display = "block";
+        }
+
+        // --- SPEECH SETUP ---
+        function initSpeech() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = false; // Capture one word at a time
+            recognition.lang = 'en-US';
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+
+            recognition.onstart = () => {
+                isListening = true;
+                statusDisplay.style.color = "#d63031";
+                statusDisplay.innerText = "🎤 Listening... Say the color!";
+                wordDisplay.classList.remove('shake');
+            };
+
+            recognition.onend = () => {
+                isListening = false;
+                // If game isn't over and we aren't purposely stopping, restart listener
+                // This keeps the mic open if the user stayed silent
+                if (statusDisplay.innerText !== "GAME OVER!" && statusDisplay.innerText !== "VICTORY!") {
+                    // Small delay before restarting to prevent rapid loop
+                    // but usually we wait for user interaction to trigger next level
+                }
+            };
+
+            recognition.onresult = (event) => {
+                const speechResult = event.results[0][0].transcript.toLowerCase().trim();
+                transcriptDisplay.innerText = `I heard: "${speechResult}"`;
+                processAnswer(speechResult);
+            };
+
+            recognition.onerror = (event) => {
+                console.error("Speech Error:", event.error);
+                if (event.error === 'no-speech') {
+                    // Just restart listening quietly
+                    try { recognition.start(); } catch(e){}
+                    return;
+                }
+                
+                let errorMsg = "";
+                if (event.error === 'not-allowed') {
+                    errorMsg = "Microphone access denied. Please click the lock icon in your URL bar to allow.";
+                } else if (event.error === 'service-not-allowed') {
+                    errorMsg = "Browser blocked the speech service (Are you offline or on file:// ?)";
+                } else if (event.error === 'network') {
+                    errorMsg = "No internet connection. Voice recognition requires internet.";
+                } else {
+                    errorMsg = "Error: " + event.error;
+                }
+                
+                statusDisplay.innerText = "⚠️ Issue detected";
+                showError(errorMsg);
+                // Allow manual retry
+                startBtn.style.display = "inline-block";
+                startBtn.innerText = "Retry Mic";
+            };
+        }
+
+        // --- GAME LOGIC ---
+
+        function startGame() {
+            // Hide errors on retry
+            errorBanner.style.display = "none";
+            
+            // Initialize speech engine if not ready
+            if(!recognition) initSpeech();
+
+            startBtn.style.display = "none";
+            retryBtn.style.display = "none";
+            currentIndex = 0;
+            scoreBoard.innerText = "0 / 20";
+            
+            loadLevel();
+        }
+
+        function resetGame() {
+            startGame();
+        }
+
+        function loadLevel() {
+            if (currentIndex >= levels.length) {
+                gameWin();
+                return;
+            }
+
+            const currentLevel = levels[currentIndex];
+            wordDisplay.innerText = currentLevel.text;
+            
+            // Visual fix for "Yellow" on white bg
+            let displayColor = currentLevel.color;
+            if(displayColor === 'yellow') displayColor = '#f39c12'; 
+            
+            wordDisplay.style.color = displayColor;
+            transcriptDisplay.innerText = "";
+            
+            // Start listening
+            startListeningSafe();
+        }
+
+        function startListeningSafe() {
+            try {
+                recognition.start();
+            } catch (e) {
+                // If already started, stop and restart
+                recognition.stop();
+                setTimeout(() => {
+                    try { recognition.start(); } catch(err){}
+                }, 200);
+            }
+        }
+
+        function processAnswer(spokenWord) {
+            const currentLevel = levels[currentIndex];
+            const correctColor = currentLevel.color.toLowerCase();
+            const trapText = currentLevel.text.toLowerCase();
+
+            // 1. Did they fall for the trap?
+            if (spokenWord.includes(trapText) && trapText !== correctColor) {
+                gameOver(trapText, correctColor);
+                return;
+            }
+
+            // 2. Did they get the color right?
+            if (spokenWord.includes(correctColor)) {
+                // SUCCESS
+                statusDisplay.style.color = "green";
+                statusDisplay.innerText = "Correct! ✅";
+                currentIndex++;
+                scoreBoard.innerText = `${currentIndex} / 20`;
+                
+                // Small delay before next word
+                setTimeout(loadLevel, 800);
+            } else {
+                // 3. Nonsense or wrong color (but not trap)
+                statusDisplay.style.color = "#e67e22";
+                statusDisplay.innerText = "Didn't catch that. Try again.";
+                wordDisplay.classList.add('shake');
+                
+                // Restart mic immediately for retry
+                setTimeout(startListeningSafe, 1000);
+            }
+        }
+
+        function gameOver(said, correct) {
+            wordDisplay.innerText = "GAME OVER";
+            wordDisplay.style.color = "red";
+            statusDisplay.innerHTML = `You said <b>"${said.toUpperCase()}"</b>.<br>The ink was ${correct.toUpperCase()}.`;
+            statusDisplay.style.color = "red";
+            retryBtn.style.display = "inline-block";
+            startBtn.style.display = "none";
+            recognition.stop();
+        }
+
+        function gameWin() {
+            wordDisplay.innerText = "VICTORY!";
+            wordDisplay.style.color = "#4CAF50";
+            statusDisplay.innerText = "Brain of Steel! 🧠";
+            retryBtn.style.display = "inline-block";
+            retryBtn.innerText = "Play Again";
+            recognition.stop();
+        }
+    </script>
+</body>
+</html>
